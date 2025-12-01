@@ -14,5 +14,8 @@
   "editClasses": "クラスを編集…",
   "preprocess": "前処理",
   "preprocessAll": "すべてを前処理",
-  "language": "言語"
+  "language": "言語",
+  "help": "ヘルプ",
+  "about": "約",
+  "instructions": "説明"
 }

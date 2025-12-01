@@ -14,5 +14,8 @@
   "editClasses": "Edit Classes...",
   "preprocess": "Preprocess",
   "preprocessAll": "Preprocess All",
-  "language": "Language"
+  "language": "Language",
+  "help": "Help",
+  "about": "About",
+  "instructions": "Instructions"
 }

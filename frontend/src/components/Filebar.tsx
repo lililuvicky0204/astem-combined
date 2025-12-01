@@ -307,7 +307,7 @@ const Filebar: React.FC<FilebarProps> = ({
 				</Menubar.Portal>
 			</Menubar.Menu>
 			{/** CONFIG */}
-			<Menubar.Menu>
+			{/**<Menubar.Menu>
 				<Menubar.Trigger className='MenubarTrigger'>{t("config")}</Menubar.Trigger>
 				<Menubar.Portal>
 					<Menubar.Content
@@ -357,7 +357,31 @@ const Filebar: React.FC<FilebarProps> = ({
 						</Menubar.Sub>
 					</Menubar.Content>
 				</Menubar.Portal>
+			</Menubar.Menu>*/}
+			{/** Help */}
+			<Menubar.Menu>
+				<Menubar.Trigger className='MenubarTrigger'>{t("help")}</Menubar.Trigger>
+				<Menubar.Portal>
+					<Menubar.Content
+						className='MenubarContent'
+						align='start'
+						sideOffset={5}
+						alignOffset={-14}
+					>
+						<Menubar.Item className='MenubarItem inset'
+									>
+							{t("about")}
+						</Menubar.Item>
+						<Menubar.Separator className='MenubarSeparator' />
+						<Menubar.Item className='MenubarItem inset'
+									>
+							{t("instructions")}
+						</Menubar.Item>
+					</Menubar.Content>
+				</Menubar.Portal>
 			</Menubar.Menu>
+
+			{/** PREPROCESS */}
 			<button
 					className="MenubarButton"
 					onClick={onPreprocess}
