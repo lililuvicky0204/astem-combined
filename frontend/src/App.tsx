@@ -33,6 +33,7 @@ function App() {
 	const [isImageLoaded, setIsImageLoaded] = useState(false);
 	const [isImageTransitioning, setIsImageTransitioning] = useState(false);
 	const [currentImageIndex, setCurrentImageIndex] = useState(0);
+	const prevImageCountRef = useRef(0);
 
 	// Annotations
 	const [annotations, setAnnotations] = useState<{ [imageIndex: number]: { [id: string]: Annotation } }>({});
@@ -240,6 +241,29 @@ function App() {
 		setImage(null);
 	};
 
+	const runModelsOnImage = useCallback(async (img: HTMLImageElement) => {
+		let newAnnotations: { [id: string]: Annotation } = {};
+
+		for (const modelName of selectedModels) {
+			const model = loadedModels[modelName];
+			if (!model) continue;
+
+			const [results] = await inference_pipeline(img, { yolo_model: model });
+
+			for (const result of results) {
+				const [x, y, w, h] = result.bbox;
+				const annotation = new Annotation(
+					'rectangle',
+					[{ x, y }, { x: x + w, y: y + h }],
+					[],
+					'tile'
+				);
+				newAnnotations[annotation.id] = annotation;
+			}
+		}
+
+		return newAnnotations;
+	}, [selectedModels, loadedModels]);
 
 	/**
 	 * Load all newly selected models.
@@ -277,6 +301,30 @@ function App() {
 		setSelectedModels(models);
 	};
 
+	const preprocessIndices = useCallback(async (indices: number[]) => {
+		for (const index of indices) {
+			const file = imageFiles[index];
+			if (!file) continue;
+
+			// Load file into an off-screen Image
+			const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+				const tempImg = new Image();
+				tempImg.onload = () => resolve(tempImg);
+				tempImg.onerror = reject;
+				tempImg.src = URL.createObjectURL(file);
+			});
+
+			const newAnnotations = await runModelsOnImage(img);
+
+			setAnnotations(prev => ({
+				...prev,
+				[index]: {
+					...newAnnotations
+				}
+			}));
+		}
+	}, [imageFiles, runModelsOnImage, setAnnotations]);
+
 	/**
 	 * Load custom user uploaded ONNX CNN model.
 	 * @param file File representing model
@@ -301,19 +349,7 @@ function App() {
 	const handlePreprocessors = useCallback(async () => {
 		if (!image || isImageTransitioning) return;
 
-
-		let newAnnotations: { [id: string]: Annotation } = {};
-		for (let i = 0; i < selectedModels.length; i++) {
-			const model = loadedModels[selectedModels[i]];
-			if (!model) continue;
-			const [results, time] = await inference_pipeline(image, { yolo_model: model });
-
-			for (const result of results) {
-				const [x, y, w, h] = result.bbox;
-				const annotation = new Annotation('rectangle', [{ x, y }, { x: x + w, y: y + h }], [], 'tile');
-				newAnnotations[annotation.id] = annotation;
-			}
-		}
+		const newAnnotations = await runModelsOnImage(image);
 
 		setAnnotations(prev => ({
 			...prev,
@@ -321,7 +357,7 @@ function App() {
 				...newAnnotations
 			}
 		}));
-	}, [image, isImageTransitioning, selectedModels, loadedModels, currentImageIndex, setAnnotations]);
+	}, [image, isImageTransitioning, currentImageIndex, runModelsOnImage, setAnnotations]);
 
 	// Rebuild annotation grid (used for navigation) on new select
 	useEffect(() => {
@@ -407,6 +443,26 @@ function App() {
 			setViewport(initialViewport);
 		}
 	}, [isImageLoaded, toolSystem, currentImageIndex, image]);
+
+	useEffect(() => {
+		const prevCount = prevImageCountRef.current;
+		const currCount = imageFiles.length;
+
+		// If files were added (not removed)
+		if (currCount > prevCount) {
+			const newIndices = Array.from(
+				{ length: currCount - prevCount },
+				(_, i) => prevCount + i
+			);
+
+			// Preprocess all newly added indices in the background
+			void preprocessIndices(newIndices);
+		}
+
+		// Update ref for next comparison
+		prevImageCountRef.current = currCount;
+	}, [imageFiles, preprocessIndices]);
+
 
 	const handleToolSelect = (tool: ToolBase) => {
 		if (toolSystem) {

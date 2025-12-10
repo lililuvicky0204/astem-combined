@@ -7,7 +7,7 @@ import * as Label from '@radix-ui/react-label';
 import * as Separator from '@radix-ui/react-separator';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { CheckIcon, CopyIcon, ClipboardIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
-import i18n from '../tools/i18n';
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 // Helper to update nested value by path
 function setNestedValue(obj: any, path: (string | number)[], value: any) {
@@ -29,7 +29,8 @@ function setNestedValue(obj: any, path: (string | number)[], value: any) {
 const getInspectorField = (
     path: (string | number)[],
     annotation: Annotation | null,
-    onChange: (path: (string | number)[], value: any) => void
+    onChange: (path: (string | number)[], value: any) => void,
+    t: TFunction
 ) => {
     if (!annotation) return;
 
@@ -93,7 +94,7 @@ const getInspectorField = (
                             [{idx}]
                         </Label.Root>
                         <div>
-                            {getInspectorField([...path, idx], annotation, onChange)}
+                            {getInspectorField([...path, idx], annotation, onChange,t)}
                         </div>
                     </div>
                 ))}
@@ -108,10 +109,10 @@ const getInspectorField = (
                 {Object.entries(value).map(([k, v]) => (
                     <div key={k} className="space-y-1">
                         <Label.Root className="text-xs text-[var(--color-light)] font-mono font-medium">
-                            {k}
+                            {t(`${path[0]}.${k}`, k)}
                         </Label.Root>
                         <div>
-                            {getInspectorField([...path, k], annotation, onChange)}
+                            {getInspectorField([...path, k], annotation, onChange,t)}
                         </div>
                     </div>
                 ))}
@@ -176,7 +177,7 @@ export const Inspector = ({
                                                                 className="transform transition-transform duration-300 group-data-[state=closed]:-rotate-90 hover:cursor-pointer"
                                                             />
                                                         </Collapsible.Trigger>
-                                                        <span className='font-mono font-medium text-(--color-light) '>{key}</span>
+                                                        <span className='font-mono font-medium text-(--color-light) '>{t(`${key}_title`)}</span>
                                                         <button
                                                             onClick={(e) => {
                                                                 // Copy button
@@ -218,7 +219,7 @@ export const Inspector = ({
 
                                                     <Collapsible.Content className='CollapsibleContent'>
                                                         <div>
-                                                            {getInspectorField([key], toolSystem.getAnnotation(selectedAnnotationIDs[0]), handleFieldChange)}
+                                                            {getInspectorField([key], toolSystem.getAnnotation(selectedAnnotationIDs[0]), handleFieldChange,t)}
                                                         </div>
                                                         {index < toolSystem.getAnnotation(selectedAnnotationIDs[0])!.inspectorArgs.length - 1 && (
                                                             <Separator.Root className="bg-[var(--color-medium-light)]/30 h-px w-full my-3" />

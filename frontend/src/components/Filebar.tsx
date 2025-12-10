@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 
 const CHECK_ITEMS = ['Always Show Bookmarks Bar', 'Always Show Full URLs'];
 
+
 interface FilebarProps {
 	updateImageFiles: (updater: (prev: File[]) => File[]) => void;
 	closeImage: (index: number) => void;
@@ -61,6 +62,9 @@ const Filebar: React.FC<FilebarProps> = ({
 
 	const [isClassesDialogOpen, setIsClassesDialogOpen] = useState(false);
 	const [classItems, setClassItems] = useState<Array<{ id: string, name: string, color: string }>>([]);
+	const [openAbout, setOpenAbout] = useState(false);
+	const [openInstructions, setOpenInstructions] = useState(false);
+	//const { t } = useTranslation(["inspector", "help"]);
 
 	/**
 	 * Select a ONNX model from the list of models,
@@ -235,7 +239,11 @@ const Filebar: React.FC<FilebarProps> = ({
 						</Menubar.Item>
 						<Menubar.Item
 							className='MenubarItem'
-							onClick={clearAllFiles}
+							    onClick={() => {
+									if (window.confirm(t("confirmClearMessage") || "Are you sure you want to clear all files?")) {
+										clearAllFiles();
+									}
+								}}
 						>
 							{t("clearFiles")}
 						</Menubar.Item>
@@ -307,7 +315,7 @@ const Filebar: React.FC<FilebarProps> = ({
 				</Menubar.Portal>
 			</Menubar.Menu>
 			{/** CONFIG */}
-			<Menubar.Menu>
+			{/**<Menubar.Menu>
 				<Menubar.Trigger className='MenubarTrigger'>{t("config")}</Menubar.Trigger>
 				<Menubar.Portal>
 					<Menubar.Content
@@ -357,7 +365,94 @@ const Filebar: React.FC<FilebarProps> = ({
 						</Menubar.Sub>
 					</Menubar.Content>
 				</Menubar.Portal>
+			</Menubar.Menu>*/}
+			{/** Help */}
+			<Menubar.Menu>
+				<Menubar.Trigger className='MenubarTrigger'>{t("help")}</Menubar.Trigger>
+
+				<Menubar.Portal>
+					<Menubar.Content
+						className='MenubarContent'
+						align='start'
+						sideOffset={5}
+						alignOffset={-14}
+					>
+
+						{/* ABOUT DIALOG: controlled approach */}
+						<Dialog.Root open={openAbout} onOpenChange={setOpenAbout}>
+							{/* Menubar item — use onSelect to intercept selection and open dialog */}
+							<Menubar.Item
+								className='MenubarItem inset'
+								onSelect={(e: Event) => {
+									e.preventDefault();        // prevent the menubar from auto-closing
+									setOpenAbout(true);        // open the dialog
+								}}
+							>
+								{t("about")}
+							</Menubar.Item>
+
+							{/* Dialog content (no trigger) */}
+							<Dialog.Portal>
+								<Dialog.Overlay className="DialogOverlay" />
+								<Dialog.Content className="DialogContent">
+									<Dialog.Title className="DialogTitle">
+										{t("about")}
+									</Dialog.Title>
+									<Dialog.Description className="DialogDescription">
+										{t("aboutText")
+											.split("\n\n")
+											.map((para, i) => (
+												<p key={i} style={{ marginBottom: "1rem" }}>
+													{para}
+												</p>
+											))}
+									</Dialog.Description>
+
+									<Dialog.Close asChild>
+										<button className="DialogCloseButton">{t("close")}</button>
+									</Dialog.Close>
+								</Dialog.Content>
+							</Dialog.Portal>
+						</Dialog.Root>
+
+
+						{/* INSTRUCTIONS DIALOG */}
+						<Dialog.Root open={openInstructions} onOpenChange={setOpenInstructions}>
+							<Menubar.Item
+								className='MenubarItem inset'
+								onSelect={(e: Event) => {
+									e.preventDefault();
+									setOpenInstructions(true);
+								}}
+							>
+								{t("instructions")}
+							</Menubar.Item>
+
+							<Dialog.Portal>
+								<Dialog.Overlay className="DialogOverlay" />
+								<Dialog.Content className="DialogContent">
+									<Dialog.Title className="DialogTitle">{t("instructions")}</Dialog.Title>
+									<Dialog.Description className="DialogDescription"> {t("instructionsText")
+										.split("\n\n")
+										.map((para, i) => (
+											<p key={i} style={{ marginBottom: "1rem" }}>
+												{para}
+											</p>
+										))}</Dialog.Description>
+									<Dialog.Close asChild>
+										<button className="DialogCloseButton">{t("close")}</button>
+									</Dialog.Close>
+								</Dialog.Content>
+							</Dialog.Portal>
+						</Dialog.Root>
+
+
+					</Menubar.Content>
+				</Menubar.Portal>
 			</Menubar.Menu>
+
+
+			{/** PREPROCESS */}
 			<button
 					className="MenubarButton"
 					onClick={onPreprocess}
@@ -427,10 +522,10 @@ const Filebar: React.FC<FilebarProps> = ({
 						</div>
 						<div className='DialogActions'>
 							<Dialog.Close asChild>
-								<button className='Button green' onClick={handleSaveClasses}>Save</button>
+								<button className='Button green' onClick={handleSaveClasses}>{t("save")}</button>
 							</Dialog.Close>
 							<Dialog.Close asChild>
-								<button className='Button gray' onClick={handleCancelClasses}>Cancel</button>
+								<button className='Button gray' onClick={handleCancelClasses}>{t("cancel")}</button>
 							</Dialog.Close>
 						</div>
 
