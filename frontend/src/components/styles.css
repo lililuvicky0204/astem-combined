@@ -356,7 +356,26 @@ input {
 	background-color: var(--color-medium);
 	margin: 5px;
 }
+.MenubarButton {
+	all: unset;
+	font-size: 13px;
+	line-height: 1;
+	color: white;
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	height: 25px;
+	padding: 0 10px;
+	position: relative;
+	user-select: none;
+	cursor: pointer;
+	background-color: var(--color-medium);
+	transition: background-color 0.2s ease;
+}
 
+	.MenubarButton:hover {
+		background-color: #167c0a;
+	}
 .RightSlot {
 	margin-left: auto;
 	padding-left: 20px;

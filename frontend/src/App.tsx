@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import Canvas from './components/Canvas';
 import ToolSystem from './tools/ToolSystem';
 import { Toolbar } from './tools/ToolSystem';
-import { Inspector } from './components/Inspector'
-import { AnnotationScrollbar } from './components/AnnotationScrollbar'
+import { Inspector } from './components/Inspector';
+import { AnnotationScrollbar } from './components/AnnotationScrollbar';
 import type { ToolBase } from './tools/Tool';
 import Filebar from './components/Filebar';
 
@@ -14,20 +14,26 @@ import { inference_pipeline } from './onnx/inference_pipeline';
 import type { InferenceSession } from 'onnxruntime-web/wasm';
 import { Annotation } from './components/Annotation';
 import { FastAverageColor, type FastAverageColorResult } from 'fast-average-color';
-import rgbToLab from '@fantasy-color/rgb-to-lab'
+import rgbToLab from '@fantasy-color/rgb-to-lab';
 import JSZip from 'jszip';
 import { LoadingBar } from './components/LoadingBar';
+import i18n from './tools/i18n';
+import { useTranslation } from "react-i18next";
 
 /**
  * App component; base rendering point, handles cross-component state. 
  */
 function App() {
+	//language
+	const { t } = useTranslation("app");
+
 	// Images
-	const [image, setImage] = useState<HTMLImageElement | null>(null); // Current loaded image
-	const [imageFiles, setImageFiles] = useState<FileList | null>(null); // All image files (if multiple selected)
+	const [image, setImage] = useState<HTMLImageElement | null>(null);
+	const [imageFiles, setImageFiles] = useState<File[]>([]);
 	const [isImageLoaded, setIsImageLoaded] = useState(false);
 	const [isImageTransitioning, setIsImageTransitioning] = useState(false);
 	const [currentImageIndex, setCurrentImageIndex] = useState(0);
+	const prevImageCountRef = useRef(0);
 
 	// Annotations
 	const [annotations, setAnnotations] = useState<{ [imageIndex: number]: { [id: string]: Annotation } }>({});
@@ -37,13 +43,9 @@ function App() {
 	// Models
 	// Warmed-up and ready for use
 	const [loadedModels, setLoadedModels] = useState<Record<string, InferenceSession>>({});
-	// Initial state should be default models (already stored in public directory)
-	// TODO: add session config for each model, i.e. user can change confidence levels, id -> class mappings
-	const [availableModels, setAvailableModels] = useState<Record<string, string>>(
-		{
-			'tile_detector': '/models/tile_detector.onnx',
-		}
-	);
+	const [availableModels, setAvailableModels] = useState<Record<string, string>>({
+		'tile_detector': '/models/tile_detector.onnx',
+	});
 	const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
 	// Exports
@@ -64,11 +66,10 @@ function App() {
 	const toolSystemRef = useRef<ToolSystem | null>(null);
 	const configManagerRef = useRef<ConfigManager | null>(null);
 
-	// Initialize ConfigManager and ToolSystem after setViewport is available
+	// Initialize ConfigManager and ToolSystem
 	useEffect(() => {
 		if (!configManagerRef.current) {
 			configManagerRef.current = new ConfigManager(DEFAULT_CONFIG, setConfig);
-			// Try to load saved config from localStorage
 			configManagerRef.current.loadFromStorage();
 		}
 
@@ -87,10 +88,10 @@ function App() {
 
 			setCurrentTool(toolSystemRef.current.currentTool);
 		}
-	}, [setViewport]);
+	}, [annotations, selectedAnnotationIDs, currentImageIndex]);
 
 	const handleImageNavigation = (num: number) => {
-		if (!imageFiles?.length) return;
+		if (!imageFiles.length) return;
 
 		const newIndex = currentImageIndex + num;
 		if (newIndex < 0 || newIndex > imageFiles.length - 1) return;
@@ -144,12 +145,13 @@ function App() {
 	const toolSystem = toolSystemRef.current;
 	const configManager = configManagerRef.current;
 
-	// Set the current image in toolSystem when loaded
-	// TODO: fix wonky state management
+	// Image loading when imageFiles or currentImageIndex changes
 	useEffect(() => {
-		if (imageFiles === null) {
+		if (!imageFiles.length) {
 			return;
 		}
+		const file = imageFiles[currentImageIndex];
+		if (!file) return;
 
 		const img = new Image();
 		img.onload = () => {
@@ -168,19 +170,100 @@ function App() {
 			console.error("Failed to load image.");
 		};
 
-		img.src = URL.createObjectURL(imageFiles[currentImageIndex])
+		img.src = URL.createObjectURL(file);
 
 		return () => {
 			img.onload = null;
 			img.onerror = null;
 		};
-	}, [imageFiles, currentImageIndex]);
+	}, [imageFiles, currentImageIndex, toolSystem]);
 
-	const uploadImages = (images: FileList) => {
+	/**
+	 * Centralized imageFiles updater used by Filebar.
+	 * This avoids typing conflicts and gives us one place for side effects if we want them later.
+	 */
+	const updateImageFiles = (updater: (prev: File[]) => File[]) => {
+		setImageFiles(prev => {
+			const next = updater(prev);
+
+			// Example: when going from 0 → >0 images, reset index & annotations
+			if (prev.length === 0 && next.length > 0) {
+				setAnnotations({});
+				setCurrentImageIndex(0);
+			}
+
+			// When clearing all images, also clear current image
+			if (next.length === 0) {
+				setImage(null);
+				setCurrentImageIndex(0);
+				setIsImageLoaded(false);
+			}
+
+			return next;
+		});
+	};
+
+	const closeImage = (index: number) => {
+		setImageFiles(prev => {
+			const newFiles = prev.filter((_, i) => i !== index);
+
+			// Shift current index if needed
+			if (index < currentImageIndex) {
+				setCurrentImageIndex(i => Math.max(i - 1, 0));
+			} else if (index === currentImageIndex) {
+				setCurrentImageIndex(0);
+			}
+
+			// Remove annotations for that file
+			setAnnotations(prevA => {
+				const clone = { ...prevA };
+				delete clone[index];
+
+				// shift annotation indices down by 1 after the removed file
+				const shifted: any = {};
+				const keys = Object.keys(clone).map(Number).sort((a,b)=>a-b);
+				let shift = 0;
+				for (const k of keys) {
+					if (k > index) shift = 1;
+					shifted[k - shift] = clone[k];
+				}
+				return shifted;
+			});
+
+			return newFiles;
+		});
+	};
+
+	const clearAllFiles = () => {
+		setImageFiles([]);
 		setAnnotations({});
 		setCurrentImageIndex(0);
-		setImageFiles(images);
-	}
+		setImage(null);
+	};
+
+	const runModelsOnImage = useCallback(async (img: HTMLImageElement) => {
+		let newAnnotations: { [id: string]: Annotation } = {};
+
+		for (const modelName of selectedModels) {
+			const model = loadedModels[modelName];
+			if (!model) continue;
+
+			const [results] = await inference_pipeline(img, { yolo_model: model });
+
+			for (const result of results) {
+				const [x, y, w, h] = result.bbox;
+				const annotation = new Annotation(
+					'rectangle',
+					[{ x, y }, { x: x + w, y: y + h }],
+					[],
+					'tile'
+				);
+				newAnnotations[annotation.id] = annotation;
+			}
+		}
+
+		return newAnnotations;
+	}, [selectedModels, loadedModels]);
 
 	/**
 	 * Load all newly selected models.
@@ -218,6 +301,30 @@ function App() {
 		setSelectedModels(models);
 	};
 
+	const preprocessIndices = useCallback(async (indices: number[]) => {
+		for (const index of indices) {
+			const file = imageFiles[index];
+			if (!file) continue;
+
+			// Load file into an off-screen Image
+			const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+				const tempImg = new Image();
+				tempImg.onload = () => resolve(tempImg);
+				tempImg.onerror = reject;
+				tempImg.src = URL.createObjectURL(file);
+			});
+
+			const newAnnotations = await runModelsOnImage(img);
+
+			setAnnotations(prev => ({
+				...prev,
+				[index]: {
+					...newAnnotations
+				}
+			}));
+		}
+	}, [imageFiles, runModelsOnImage, setAnnotations]);
+
 	/**
 	 * Load custom user uploaded ONNX CNN model.
 	 * @param file File representing model
@@ -242,19 +349,7 @@ function App() {
 	const handlePreprocessors = useCallback(async () => {
 		if (!image || isImageTransitioning) return;
 
-		// TODO: prevent multiple preprocess passes from occuring on an image
-		let newAnnotations: { [id: string]: Annotation } = {};
-		for (let i = 0; i < selectedModels.length; i++) {
-			const model = loadedModels[selectedModels[i]];
-			if (!model) continue;
-			const [results, time] = await inference_pipeline(image, { yolo_model: model });
-
-			for (const result of results) {
-				const [x, y, w, h] = result.bbox;
-				const annotation = new Annotation('rectangle', [{ x, y }, { x: x + w, y: y + h }], [], 'tile');
-				newAnnotations[annotation.id] = annotation;
-			}
-		}
+		const newAnnotations = await runModelsOnImage(image);
 
 		setAnnotations(prev => ({
 			...prev,
@@ -262,7 +357,7 @@ function App() {
 				...newAnnotations
 			}
 		}));
-	}, [image, isImageTransitioning, selectedModels, loadedModels, currentImageIndex, setAnnotations]);
+	}, [image, isImageTransitioning, currentImageIndex, runModelsOnImage, setAnnotations]);
 
 	// Rebuild annotation grid (used for navigation) on new select
 	useEffect(() => {
@@ -273,13 +368,13 @@ function App() {
 
 	// Global keyboard event handler
 	useEffect(() => {
-		const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+		const handleGlobalKeyDown = (e: KeyboardEvent) => {
 			if (e.key === ' ') {
 				handlePreprocessors();
 			}
 		};
 
-		const handleGlobalKeyUp = (e: globalThis.KeyboardEvent) => {
+		const handleGlobalKeyUp = (e: KeyboardEvent) => {
 			const activeElement = document.activeElement;
 			const isTyping = activeElement && (
 				activeElement.tagName === 'INPUT' ||
@@ -287,17 +382,13 @@ function App() {
 				activeElement.getAttribute('contenteditable') === 'true'
 			);
 
-			if (isTyping) {
-				// Avoid navigation when typing
-				return;
-			}
+			if (isTyping) return;
 
 			// Check if Ctrl key is held for image navigation
 			if (e.ctrlKey) {
 				if (e.key === 'ArrowRight') {
 					handleImageNavigation(1);
-				}
-				else if (e.key === 'ArrowLeft') {
+				} else if (e.key === 'ArrowLeft') {
 					handleImageNavigation(-1);
 				}
 			} else if (toolSystem) {
@@ -315,21 +406,20 @@ function App() {
 					toolSystem.navigateAnnotationGrid('right');
 				}
 				else if (e.key === 'Delete') {
-					toolSystem.removeAnnotation(toolSystem.selectedAnnotationIDs[0])
+					toolSystem.removeAnnotation(toolSystem.selectedAnnotationIDs[0]);
 				}
 			}
 		};
 
-		// Add event listeners to document
-		document.addEventListener('keydown', handleGlobalKeyDown);
-		document.addEventListener('keyup', handleGlobalKeyUp);
+		document.addEventListener('keydown', handleGlobalKeyDown as any);
+		document.addEventListener('keyup', handleGlobalKeyUp as any);
 
 		// Cleanup event listeners on unmount
 		return () => {
-			document.removeEventListener('keydown', handleGlobalKeyDown);
-			document.removeEventListener('keyup', handleGlobalKeyUp);
+			document.removeEventListener('keydown', handleGlobalKeyDown as any);
+			document.removeEventListener('keyup', handleGlobalKeyUp as any);
 		};
-	}, [imageFiles, currentImageIndex, isImageTransitioning, handlePreprocessors]);
+	}, [imageFiles, currentImageIndex, isImageTransitioning, handlePreprocessors, toolSystem]);
 
 	useEffect(() => {
 		if (image && toolSystem) {
@@ -340,7 +430,9 @@ function App() {
 
 			// Adjust initial viewport so that full image fits (centered) in screen
 			const aspectRatio = canvasWidth / canvasHeight;
-			const scale = (image.height > image.width) ? (window.innerHeight / image.height / aspectRatio) : (window.innerWidth / image.width / aspectRatio);
+			const scale = (image.height > image.width)
+				? (window.innerHeight / image.height / aspectRatio)
+				: (window.innerWidth / image.width / aspectRatio);
 
 			const initialViewport = {
 				x: ((canvasWidth / scale) - image.width) * 0.5,
@@ -350,7 +442,27 @@ function App() {
 
 			setViewport(initialViewport);
 		}
-	}, [isImageLoaded, toolSystem]);
+	}, [isImageLoaded, toolSystem, currentImageIndex, image]);
+
+	useEffect(() => {
+		const prevCount = prevImageCountRef.current;
+		const currCount = imageFiles.length;
+
+		// If files were added (not removed)
+		if (currCount > prevCount) {
+			const newIndices = Array.from(
+				{ length: currCount - prevCount },
+				(_, i) => prevCount + i
+			);
+
+			// Preprocess all newly added indices in the background
+			void preprocessIndices(newIndices);
+		}
+
+		// Update ref for next comparison
+		prevImageCountRef.current = currCount;
+	}, [imageFiles, preprocessIndices]);
+
 
 	const handleToolSelect = (tool: ToolBase) => {
 		if (toolSystem) {
@@ -367,11 +479,11 @@ function App() {
 	*/
 
 	const exportAnnotations = async (onlyCurrent: boolean) => {
-		if (!imageFiles) return;
+		if (!imageFiles.length) return;
 
 		setIsExporting(true);
 		setCurrentExportIndex(0);
-		setCurrentExportStep('Preparing export...');
+		setCurrentExportStep(t('export.preparing'));
 		setCurrentExportSubStep('');
 
 		try {
@@ -407,7 +519,7 @@ function App() {
 				// Load the image for this iteration if it's not the current one
 				let imageToProcess = image;
 				if (!onlyCurrent && i !== currentImageIndex) {
-					setCurrentExportStep(`Loading image ${i + 1} of ${imageFiles.length}...`);
+					setCurrentExportStep(t("export.loadingImage", { current: i + 1, total: imageFiles.length }));
 					imageToProcess = await new Promise<HTMLImageElement>((resolve, reject) => {
 						const tempImg = new Image();
 						tempImg.onload = () => resolve(tempImg);
@@ -419,7 +531,7 @@ function App() {
 				if (!imageToProcess) continue;
 
 				const annots = Object.values(annotations[i] || []);
-				setCurrentExportStep(`Processing image ${i + 1} of ${imageFiles.length} (${annots.length} annotations)`);
+				setCurrentExportStep(t("process.image", { current: i + 1, total: imageFiles.length }));
 
 				for (const annotation of annots) {
 					currentStepIndex++;
@@ -512,12 +624,13 @@ function App() {
 				imageFolder?.file('annotations.json', JSON.stringify(annotationsData, null, 2));
 			}
 
-			setCurrentExportStep('Generating ZIP file...');
-			setCurrentExportSubStep('');
+			// setCurrentExportStep('Generating ZIP file...');
+			//setCurrentExportSubStep('');
 
 			// Generate the ZIP file and trigger download
+
 			const zipBlob = await zip.generateAsync({ type: 'blob' });
-			//const zipUrl = URL.createObjectURL(zipBlob);
+			const zipUrl = URL.createObjectURL(zipBlob);
 
 			const formData = new FormData();
 			formData.append('file', zipBlob, 'annotations.zip');
@@ -531,23 +644,23 @@ function App() {
 				throw new Error(`HTTP error! Status: ${response.status}`);
 			}
 
-			/*const a = document.createElement('a');
-			a.href = zipUrl;
-			a.download = 'annotations.zip';
-			a.click();
-			URL.revokeObjectURL(zipUrl);*/
+			// const a = document.createElement('a');
+			// a.href = zipUrl;
+			// a.download = 'annotations.zip';
+			// a.click();
+			// URL.revokeObjectURL(zipUrl);
 
-			setCurrentExportStep('Export complete!');
+			setCurrentExportStep(t('export.complete'));
 		}
 		catch (error: any) {
 			if (error instanceof TypeError && error.message === 'NetworkError when attempting to fetch resource.') {
 				// Ignore CORS error
 				console.warn('CORS error ignored:', error);
-				setCurrentExportStep('Export complete!');
+				setCurrentExportStep(t('export.complete'));
 			} 
 			else {
 				console.error('Export failed:', error);
-				setCurrentExportStep('Export failed');
+				setCurrentExportStep(t('export.failed'));
 			}
 		}
 		finally {
@@ -555,6 +668,7 @@ function App() {
 			setTimeout(() => setIsExporting(false), 2000);
 		}
 	};
+
 
 	return (
 		<div className='flex-col flex'>
@@ -566,7 +680,9 @@ function App() {
 				subStep={currentExportSubStep}
 			/>
 			<Filebar
-				setImageFiles={uploadImages}
+				updateImageFiles={updateImageFiles}
+				closeImage={closeImage}
+    			clearAllFiles={clearAllFiles}
 				configManager={configManagerRef.current}
 				toolSystem={toolSystemRef.current}
 				currentAnnotationClass={currentAnnotationClass}
@@ -595,7 +711,9 @@ function App() {
 
 				</Panel>
 				<PanelResizeHandle style={{ width: '4px', background: 'var(--color-light)' }} />
-				<Panel defaultSize={70} minSize={25}
+				<Panel
+					defaultSize={70}
+					minSize={25}
 					onResize={(size) => setPanelSize(size)}
 				>
 					<div style={{
@@ -610,7 +728,7 @@ function App() {
 					}}>
 						{image && toolSystem && configManager && (!isImageTransitioning ? (
 							<Canvas
-								key={canvasKey} // Force re-render when image changes
+								key={canvasKey}
 								image={image}
 								currentImageIndex={currentImageIndex}
 								backgroundColor={'#3B3B3B'}
@@ -620,10 +738,10 @@ function App() {
 								annotations={annotations}
 								selectedAnnotationIDs={selectedAnnotationIDs}
 							/>
-						) :
+						) : (
 							<Canvas
 								key={canvasKey}
-								image={null} // Render just the background
+								image={null}
 								currentImageIndex={-1}
 								backgroundColor={'#3B3B3B'}
 								toolSystem={toolSystem}
@@ -632,7 +750,7 @@ function App() {
 								annotations={annotations}
 								selectedAnnotationIDs={selectedAnnotationIDs}
 							/>
-						)}
+						))}
 					</div>
 				</Panel>
 				<PanelResizeHandle style={{ width: '4px', background: '#ccc' }} />
